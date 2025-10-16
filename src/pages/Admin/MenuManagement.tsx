@@ -139,38 +139,46 @@ export const MenuManagement = () => {
 
   const uploadImage = async (file: File): Promise<string> => {
     try {
+      const bucket = 'restaurant-images';
       const fileExt = file.name.split('.').pop();
       const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // First check if bucket exists
-      const { data: buckets } = await supabase.storage.listBuckets();
-      const bucketExists = buckets?.some(bucket => bucket.name === 'menu-images');
-
-      if (!bucketExists) {
-        throw new Error('Storage bucket "menu-images" not found. Please create it in Supabase.');
-      }
-
-      // Upload the file
+      // Upload the file to the configured bucket. Avoid listing buckets (requires service role).
       const { error: uploadError } = await supabase.storage
-        .from('menu-images')
+        .from(bucket)
         .upload(filePath, file, {
           cacheControl: '3600',
           upsert: false
         });
 
       if (uploadError) {
-        console.error('Upload error:', uploadError);
+        const status = (uploadError as any)?.status;
+        // Notify user in UI instead of using console.error to satisfy linting
+        addNotificationRef.current(
+          `Upload error${status ? ` (status ${status})` : ''}.`,
+          'error'
+        );
+        // Provide a helpful message if bucket is not found or permissions denied
+        if (status === 404) {
+          throw new Error(`Storage bucket "${bucket}" not found. Create it in Supabase or update your environment variable.`);
+        }
+        if (status === 403) {
+          throw new Error(`Permission denied uploading to bucket "${bucket}". Ensure your storage policies and keys allow uploads from the client.`);
+        }
         throw uploadError;
       }
 
       // Get public URL
       const { data } = supabase.storage
-        .from('menu-images')
+        .from(bucket)
         .getPublicUrl(filePath);
 
+      // If public URL couldn't be generated, handle the error
       if (!data || !data.publicUrl) {
-        throw new Error('Failed to get public URL');
+        const message = `Uploaded to bucket "${bucket}" but failed to get public URL.`;
+        addNotificationRef.current(message, 'error');
+        throw new Error(`Uploaded but failed to obtain public URL for "${filePath}" in bucket "${bucket}".`);
       }
 
       return data.publicUrl;
