@@ -61,11 +61,15 @@ export const Dashboard = () => {
         .gte('created_at', todayStart)
         .lt('created_at', todayEnd);
 
-      if (todayError) throw todayError;
+      if (todayError) {
+        console.error('Error fetching today\'s orders:', todayError);
+        // Continue with partial data instead of throwing
+        addNotificationRef.current('Some data may be incomplete', 'warning');
+      }
 
       // Calculate today's stats
       const todayOrdersCount = todayOrders?.length || 0;
-      const todayRevenue = todayOrders?.reduce((sum, order) => sum + parseFloat(order.total_amount.toString()), 0) || 0;
+      const todayRevenue = todayOrders?.reduce((sum, order) => sum + parseFloat(order.total_amount?.toString() || '0'), 0) || 0;
       const pendingCount = todayOrders?.filter(o => o.status === 'pending').length || 0;
 
       // Fetch total customers
@@ -201,14 +205,14 @@ export const Dashboard = () => {
 
   const getStatusColor = (status: string) => {
     const colors: { [key: string]: string } = {
-      pending: 'bg-yellow-100 text-yellow-800',
-      confirmed: 'bg-blue-100 text-blue-800',
-      preparing: 'bg-orange-100 text-orange-800',
-      ready: 'bg-purple-100 text-purple-800',
-      delivered: 'bg-emerald-100 text-emerald-800',
-      cancelled: 'bg-red-100 text-red-800',
+      pending: 'bg-amber-100 text-amber-700 border border-amber-200',
+      confirmed: 'bg-blue-100 text-blue-700 border border-blue-200',
+      preparing: 'bg-orange-100 text-orange-700 border border-orange-200',
+      ready: 'bg-purple-100 text-purple-700 border border-purple-200',
+      delivered: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+      cancelled: 'bg-red-100 text-red-700 border border-red-200',
     };
-    return colors[status] || 'bg-gray-100 text-gray-800';
+    return colors[status] || 'bg-gray-100 text-gray-700 border border-gray-200';
   };
 
   const maxRevenue = Math.max(...stats.weeklyRevenue, 1);
@@ -223,64 +227,58 @@ export const Dashboard = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Dashboard Overview</h2>
-        <p className="text-gray-600">Monitor your restaurant&apos;s performance</p>
-      </div>
-
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white rounded-xl shadow-sm p-6 border">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl shadow-md p-6 border border-blue-100 hover:shadow-lg transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Today&apos;s Orders</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.todayOrders}</p>
+              <p className="text-sm font-medium text-blue-600">Today's Orders</p>
+              <p className="text-3xl font-bold text-gray-900">{stats.todayOrders}</p>
             </div>
-            <div className="bg-blue-100 p-3 rounded-lg">
+            <div className="bg-blue-100 p-3 rounded-xl border border-blue-200">
               <Package className="text-blue-600" size={24} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 border">
+        <div className="bg-gradient-to-br from-green-50 to-white rounded-xl shadow-md p-6 border border-green-100 hover:shadow-lg transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Today&apos;s Revenue</p>
-              <p className="text-2xl font-bold text-gray-900">${stats.todayRevenue.toFixed(2)}</p>
+              <p className="text-sm font-medium text-green-600">Today's Revenue</p>
+              <p className="text-3xl font-bold text-gray-900">${stats.todayRevenue.toFixed(2)}</p>
             </div>
-            <div className="bg-emerald-100 p-3 rounded-lg">
-              <DollarSign className="text-emerald-600" size={24} />
+            <div className="bg-green-100 p-3 rounded-xl border border-green-200">
+              <DollarSign className="text-green-600" size={24} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 border">
+        <div className="bg-gradient-to-br from-amber-50 to-white rounded-xl shadow-md p-6 border border-amber-100 hover:shadow-lg transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pending Orders</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.pendingOrders}</p>
+              <p className="text-sm font-medium text-amber-600">Pending Orders</p>
+              <p className="text-3xl font-bold text-gray-900">{stats.pendingOrders}</p>
             </div>
-            <div className="bg-yellow-100 p-3 rounded-lg">
-              <Clock className="text-yellow-600" size={24} />
+            <div className="bg-amber-100 p-3 rounded-xl border border-amber-200">
+              <Clock className="text-amber-600" size={24} />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 border">
+        <div className="bg-gradient-to-br from-purple-50 to-white rounded-xl shadow-md p-6 border border-purple-100 hover:shadow-lg transition-all">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Customers</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.totalCustomers}</p>
+              <p className="text-sm font-medium text-purple-600">Total Customers</p>
+              <p className="text-3xl font-bold text-gray-900">{stats.totalCustomers}</p>
             </div>
-            <div className="bg-purple-100 p-3 rounded-lg">
+            <div className="bg-purple-100 p-3 rounded-xl border border-purple-200">
               <Users className="text-purple-600" size={24} />
             </div>
           </div>
@@ -289,67 +287,109 @@ export const Dashboard = () => {
 
       {/* Charts and Details Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm p-6 border">
-          <div className="flex items-center space-x-2 mb-6">
-            <BarChart3 className="text-red-600" size={24} />
-            <h3 className="text-lg font-bold text-gray-900">Weekly Revenue</h3>
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-2">
+              <BarChart3 className="text-blue-600" size={20} />
+              <h3 className="text-lg font-semibold text-gray-900">Weekly Revenue</h3>
+            </div>
+            <div className="bg-blue-50 text-blue-700 text-xs py-1 px-2 rounded-md font-medium border border-blue-100">
+              Last 7 days
+            </div>
           </div>
           
           <div className="h-64 flex items-end justify-between space-x-2">
             {stats.weeklyRevenue.map((revenue, index) => (
-              <div key={index} className="flex flex-col items-center flex-1">
+              <div key={index} className="flex flex-col items-center flex-1 group">
                 <div 
-                  className="bg-red-500 rounded-t-lg w-full transition-all duration-300 hover:bg-red-600"
+                  className="bg-gradient-to-t from-blue-600 to-blue-400 rounded-t-lg w-full transition-all duration-300 group-hover:from-blue-700 group-hover:to-blue-500 shadow-sm"
                   style={{ 
                     height: `${Math.max((revenue / maxRevenue) * 200, 4)}px`,
                     minHeight: '4px'
                   }}
                 ></div>
-                <p className="text-xs text-gray-600 mt-2">{dayLabels[index]}</p>
+                <div className="bg-blue-50 text-blue-800 font-medium text-xs px-2 py-1 rounded-md mt-2 opacity-0 group-hover:opacity-100 transition-opacity absolute -mt-10">
+                  ${revenue.toFixed(2)}
+                </div>
+                <p className="text-xs font-medium text-gray-700 mt-2">{dayLabels[index]}</p>
                 <p className="text-xs text-gray-500">${revenue.toFixed(0)}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow-sm p-6 border">
-          <div className="flex items-center space-x-2 mb-6">
-            <TrendingUp className="text-red-600" size={24} />
-            <h3 className="text-lg font-bold text-gray-900">Popular Items</h3>
+        <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center space-x-2">
+              <TrendingUp className="text-blue-600" size={20} />
+              <h3 className="text-lg font-semibold text-gray-900">Popular Items</h3>
+            </div>
+            <div className="bg-blue-50 text-blue-700 text-xs py-1 px-2 rounded-md font-medium border border-blue-100">
+              Top 5
+            </div>
           </div>
           
-          <div className="space-y-3">
+          <div className="space-y-4">
             {stats.popularItems.length > 0 ? (
               stats.popularItems.map((item, index) => (
-                <div key={index} className="flex items-center justify-between">
+                <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
                   <div className="flex items-center space-x-3">
-                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                    <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600 font-semibold text-xs">
+                      #{index + 1}
+                    </div>
+                    <p className="text-sm font-medium text-gray-900 truncate max-w-[120px]">{item.name}</p>
                   </div>
-                  <p className="text-sm text-gray-600">{item.count} orders</p>
+                  <div className="flex items-center space-x-2">
+                    <div className="bg-blue-50 text-blue-700 text-xs py-1 px-2 rounded-full font-medium">
+                      {item.count} orders
+                    </div>
+                  </div>
                 </div>
               ))
             ) : (
-              <p className="text-sm text-gray-500">No orders yet</p>
+              <div className="flex flex-col items-center justify-center py-8">
+                <div className="bg-blue-50 p-4 rounded-full mb-3">
+                  <TrendingUp className="text-blue-400" size={24} />
+                </div>
+                <p className="text-sm text-gray-500">No order data yet</p>
+              </div>
             )}
           </div>
         </div>
       </div>
 
       {/* Recent Orders */}
-      <div className="bg-white rounded-xl shadow-sm p-6 border">
-        <h3 className="text-lg font-bold text-gray-900 mb-6">Recent Orders</h3>
+      <div className="bg-white rounded-xl shadow-md p-6 border border-gray-200">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-lg font-semibold text-gray-900">Recent Orders</h3>
+          <button className="bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs py-1 px-3 rounded-md font-medium border border-blue-100 transition-colors">
+            View All
+          </button>
+        </div>
         
         {stats.recentOrders.length > 0 ? (
-          <div className="space-y-4">
-            {stats.recentOrders.map((order) => (
-              <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                <div>
-                  <p className="font-medium text-gray-900">Order #{order.id.slice(-8)}</p>
-                  <p className="text-sm text-gray-600">{order.customer_name}</p>
-                  <p className="text-xs text-gray-500">{new Date(order.created_at).toLocaleString()}</p>
+          <div className="rounded-lg overflow-hidden border border-gray-200">
+            {stats.recentOrders.map((order, index) => (
+              <div 
+                key={order.id} 
+                className={`flex items-center justify-between p-4 hover:bg-gray-50 transition-colors ${
+                  index !== stats.recentOrders.length - 1 ? 'border-b border-gray-200' : ''
+                }`}
+              >
+                <div className="flex items-center space-x-4">
+                  <div className="flex-shrink-0 w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                    <span className="text-blue-700 font-medium text-xs">{order.id.slice(-4)}</span>
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-900">Order #{order.id.slice(-8)}</p>
+                    <div className="flex items-center space-x-2">
+                      <p className="text-sm text-gray-600">{order.customer_name}</p>
+                      <span className="text-gray-400">•</span>
+                      <p className="text-xs text-gray-500">{new Date(order.created_at).toLocaleString()}</p>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-right">
+                <div className="text-right flex flex-col items-end">
                   <p className="font-bold text-gray-900">${parseFloat(order.total_amount.toString()).toFixed(2)}</p>
                   <span className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(order.status)}`}>
                     {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
@@ -359,9 +399,12 @@ export const Dashboard = () => {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12">
-            <Package className="mx-auto text-gray-300 mb-4" size={64} />
-            <p className="text-xl text-gray-600">No recent orders</p>
+          <div className="text-center py-12 border border-dashed border-gray-200 rounded-xl">
+            <div className="bg-blue-50 rounded-full h-16 w-16 flex items-center justify-center mx-auto mb-4">
+              <Package className="text-blue-400" size={28} />
+            </div>
+            <p className="text-xl font-medium text-gray-600 mb-1">No recent orders</p>
+            <p className="text-sm text-gray-500">Orders will appear here once customers place them</p>
           </div>
         )}
       </div>

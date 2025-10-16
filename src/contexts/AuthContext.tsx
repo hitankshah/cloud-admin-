@@ -17,7 +17,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, userData: { full_name: string; phone: string }) => Promise<void>;
-  signOut: () => Promise<void>;
+  signOut: () => Promise<boolean | void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
 }
 
@@ -163,8 +163,27 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       
+      // Clear state
       setUser(null);
       setUserProfile(null);
+      
+      // Clear any local storage items that might be persisting user state
+      localStorage.removeItem('supabase.auth.token');
+      
+      // Clear any supabase-related localStorage items
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('supabase.auth.') || key.includes('supabase')) {
+          localStorage.removeItem(key);
+        }
+      });
+      
+      // Clear all session storage as well
+      sessionStorage.clear();
+      
+      // Set a flag to indicate logout was successful
+      localStorage.setItem('just_logged_out', 'true');
+      
+      return true;
     } catch (error) {
       console.error('Sign out error:', error);
       throw error;

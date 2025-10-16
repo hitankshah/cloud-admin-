@@ -30,7 +30,40 @@ export const OrderManagement = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching orders:', error);
+        addNotificationRef.current('Error loading orders. Will retry...', 'warning');
+        
+        // Try fallback query with simpler approach
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('orders')
+          .select('*');
+          
+        if (fallbackError || !fallbackData) {
+          throw error; // If fallback also fails, throw original error
+        }
+        
+        // Use fallback data
+        if (mountedRef.current) {
+          // Ensure the data has all required fields
+          const validOrders = fallbackData.map(order => ({
+            ...order,
+            // Add any missing fields with default values
+            customer_email: order.customer_email || '',
+            customer_phone: order.customer_phone || '',
+            delivery_address: order.delivery_address || '',
+            user_id: order.user_id || null,
+            special_instructions: order.special_instructions || '',
+            updated_at: order.updated_at || order.created_at,
+            order_items: order.order_items || []
+          }));
+          
+          setOrders(validOrders);
+          setUnreadCount(validOrders?.filter(o => !o.is_read).length || 0);
+          addNotificationRef.current('Orders loaded with limited information', 'info');
+        }
+        return;
+      }
       
       if (mountedRef.current) {
         setOrders(data || []);

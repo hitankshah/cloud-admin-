@@ -44,7 +44,26 @@ export const MenuManagement = () => {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching menu items:', error);
+        addNotificationRef.current('Error loading menu items. Will retry...', 'warning');
+        
+        // Try fallback query with simpler approach
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('menu_items')
+          .select('*');
+          
+        if (fallbackError || !fallbackData) {
+          throw error; // If fallback also fails, throw original error
+        }
+        
+        // Use fallback data
+        if (mountedRef.current) {
+          setMenuItems(fallbackData);
+          addNotificationRef.current('Menu items loaded with limited data', 'info');
+        }
+        return;
+      }
       
       if (mountedRef.current) {
         setMenuItems(data || []);
