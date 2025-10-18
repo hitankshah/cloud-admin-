@@ -29,9 +29,20 @@ export const MenuManagement = () => {
     description: '',
     price: '',
     image_url: '',
-    category: 'morning' as 'morning' | 'afternoon' | 'dinner',
+    category: 'morning' as MenuItem['category'],
     is_vegetarian: false,
   });
+
+  const sortByCreatedAtDesc = useCallback((items: MenuItem[]) => {
+    return [...items].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  }, []);
+
+  const mergeItem = useCallback((items: MenuItem[], incoming: MenuItem) => {
+    const filtered = items.filter(item => item.id !== incoming.id);
+    return sortByCreatedAtDesc([incoming, ...filtered]);
+  }, [sortByCreatedAtDesc]);
 
   const fetchMenuItems = useCallback(async () => {
     if (isFetchingRef.current || !mountedRef.current) return;
@@ -47,7 +58,7 @@ export const MenuManagement = () => {
       if (error) throw error;
       
       if (mountedRef.current) {
-        setMenuItems(data || []);
+        setMenuItems(sortByCreatedAtDesc(data || []));
       }
     } catch (error) {
       console.error('Error:', error);
@@ -60,7 +71,7 @@ export const MenuManagement = () => {
       }
       isFetchingRef.current = false;
     }
-  }, []); // No dependencies - stable function
+  }, [sortByCreatedAtDesc]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -78,7 +89,7 @@ export const MenuManagement = () => {
           (payload) => {
             console.log('MenuManagement: New item added', payload);
             if (mountedRef.current) {
-              setMenuItems(prev => [payload.new as MenuItem, ...prev]);
+              setMenuItems(prev => mergeItem(prev, payload.new as MenuItem));
             }
           }
         )
@@ -87,9 +98,7 @@ export const MenuManagement = () => {
           (payload) => {
             console.log('MenuManagement: Item updated', payload);
             if (mountedRef.current) {
-              setMenuItems(prev => prev.map(item => 
-                item.id === payload.new.id ? payload.new as MenuItem : item
-              ));
+              setMenuItems(prev => mergeItem(prev, payload.new as MenuItem));
             }
           }
         )
@@ -194,12 +203,14 @@ export const MenuManagement = () => {
           .eq('id', editingId);
         if (error) throw error;
         addNotificationRef.current('Menu item updated successfully', 'success');
+        await fetchMenuItems();
       } else {
         const { error } = await supabase
           .from('menu_items')
           .insert([data]);
         if (error) throw error;
         addNotificationRef.current('Menu item added successfully', 'success');
+        await fetchMenuItems();
       }
 
       resetForm();
@@ -222,10 +233,11 @@ export const MenuManagement = () => {
         addNotification('File size should be less than 5MB', 'error');
         return;
       }
-      if (!['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.type)) {
-        addNotification('Please select a valid image file', 'error');
+      if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
+        addNotification('Only .jpg or .png images are allowed', 'error');
         return;
       }
+      addNotification('Image selected. Only .jpg or .png uploads are allowed.', 'info');
       setImageFile(file);
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -264,6 +276,7 @@ export const MenuManagement = () => {
 
       if (error) throw error;
       addNotificationRef.current('Menu item deleted successfully', 'success');
+      await fetchMenuItems();
       // Real-time subscription will update the list automatically
     } catch (error: unknown) {
       addNotificationRef.current(
@@ -287,6 +300,7 @@ export const MenuManagement = () => {
 
       if (error) throw error;
       addNotificationRef.current('Item availability updated', 'success');
+      await fetchMenuItems();
       // Real-time subscription will update the list automatically
     } catch (error: unknown) {
       addNotificationRef.current(
@@ -316,10 +330,17 @@ export const MenuManagement = () => {
     }
   };
 
+  const itemsForCategory = useCallback(
+    (category: Exclude<MenuItem['category'], 'all'>) => {
+      return menuItems.filter(item => item.category === category || item.category === 'all');
+    },
+    [menuItems]
+  );
+
   const groupedItems = {
-    morning: menuItems.filter(item => item.category === 'morning'),
-    afternoon: menuItems.filter(item => item.category === 'afternoon'),
-    dinner: menuItems.filter(item => item.category === 'dinner'),
+    morning: itemsForCategory('morning'),
+    afternoon: itemsForCategory('afternoon'),
+    dinner: itemsForCategory('dinner'),
   };
 
   return (
@@ -388,12 +409,13 @@ export const MenuManagement = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-2">Category</label>
                 <select
                   value={formData.category}
-                  onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value as 'morning' | 'afternoon' | 'dinner' }))}
+                  onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value as MenuItem['category'] }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
                   <option value="morning">Morning</option>
                   <option value="afternoon">Afternoon</option>
                   <option value="dinner">Dinner</option>
+                  <option value="all">All Day</option>
                 </select>
               </div>
 
@@ -417,10 +439,11 @@ export const MenuManagement = () => {
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept=".jpg,.jpeg,.png"
                   onChange={handleFileChange}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
                 />
+                <p className="text-xs text-gray-500">Accepted formats: JPG or PNG only.</p>
                 {imagePreview && (
                   <div className="relative w-32 h-32">
                     <img

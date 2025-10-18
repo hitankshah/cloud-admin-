@@ -22,7 +22,7 @@ export interface MenuItem {
   description: string;
   price: number;
   image_url: string;
-  category: 'morning' | 'afternoon' | 'dinner';
+  category: 'morning' | 'afternoon' | 'dinner' | 'all';
   is_vegetarian: boolean;
   is_available: boolean;
   created_at: string;
