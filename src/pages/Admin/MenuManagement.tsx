@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Edit, Trash2, Upload, X, Eye, EyeOff } from 'lucide-react';
-import { supabase, MenuItem } from '../../lib/supabase';
+import { supabase, MenuItem, MenuItemImage } from '../../lib/supabase';
 import { useNotification } from '../../contexts/NotificationContext';
 import { AdminRouteGuard } from '../../components/AdminRouteGuard';
 
@@ -10,8 +10,8 @@ export const MenuManagement = () => {
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>('');
+  const [imageFiles, setImageFiles] = useState<File[]>([]); // Changed to array
+  const [imagePreviews, setImagePreviews] = useState<string[]>([]); // Changed to array
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { addNotification } = useNotification();
   const mountedRef = useRef(true);
@@ -28,7 +28,7 @@ export const MenuManagement = () => {
     name: '',
     description: '',
     price: '',
-    image_url: '',
+    image_url: '', // Primary image
     category: 'morning' as MenuItem['category'],
     is_vegetarian: false,
   });
@@ -153,29 +153,27 @@ export const MenuManagement = () => {
       const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
       const filePath = `${fileName}`;
 
-      // Upload the file to the configured bucket. Avoid listing buckets (requires service role).
+      // Upload with optimized settings for speed
       const { error: uploadError } = await supabase.storage
         .from(bucket)
         .upload(filePath, file, {
           cacheControl: '3600',
-          upsert: false
+          upsert: false,
+          contentType: file.type, // Explicitly set content type for faster processing
         });
 
       if (uploadError) {
         const status = (uploadError as any)?.status;
-        // Notify user in UI instead of using console.error to satisfy linting
-        addNotificationRef.current(
-          `Upload error${status ? ` (status ${status})` : ''}.`,
-          'error'
-        );
-        // Provide a helpful message if bucket is not found or permissions denied
+        const message = `Failed to upload ${file.name}${status ? ` (status ${status})` : ''}`;
+        addNotificationRef.current(message, 'error');
+        
         if (status === 404) {
-          throw new Error(`Storage bucket "${bucket}" not found. Create it in Supabase or update your environment variable.`);
+          throw new Error(`Storage bucket "${bucket}" not found. Please create it in Supabase.`);
         }
         if (status === 403) {
-          throw new Error(`Permission denied uploading to bucket "${bucket}". Ensure your storage policies and keys allow uploads from the client.`);
+          throw new Error(`Permission denied. Check storage policies for bucket "${bucket}".`);
         }
-        throw uploadError;
+        throw new Error(message);
       }
 
       // Get public URL
@@ -183,11 +181,8 @@ export const MenuManagement = () => {
         .from(bucket)
         .getPublicUrl(filePath);
 
-      // If public URL couldn't be generated, handle the error
       if (!data || !data.publicUrl) {
-        const message = `Uploaded to bucket "${bucket}" but failed to get public URL.`;
-        addNotificationRef.current(message, 'error');
-        throw new Error(`Uploaded but failed to obtain public URL for "${filePath}" in bucket "${bucket}".`);
+        throw new Error(`Failed to get public URL for "${filePath}"`);
       }
 
       return data.publicUrl;
@@ -206,18 +201,37 @@ export const MenuManagement = () => {
     setActionLoading(true);
 
     try {
-      let imageUrl = formData.image_url;
+      let primaryImageUrl = formData.image_url;
+      const uploadedImageUrls: string[] = [];
 
-      if (imageFile) {
+      // Upload all new images IN PARALLEL for much faster performance
+      if (imageFiles.length > 0) {
         setUploading(true);
-        imageUrl = await uploadImage(imageFile);
+        addNotificationRef.current(`Uploading ${imageFiles.length} image(s)...`, 'info');
+        
+        try {
+          // Upload all images simultaneously
+          const uploadPromises = imageFiles.map(file => uploadImage(file));
+          const results = await Promise.all(uploadPromises);
+          uploadedImageUrls.push(...results);
+          
+          addNotificationRef.current(`${uploadedImageUrls.length} image(s) uploaded successfully`, 'success');
+          
+          // Use first uploaded image as primary if no primary was set
+          if (!primaryImageUrl && uploadedImageUrls.length > 0) {
+            primaryImageUrl = uploadedImageUrls[0];
+          }
+        } finally {
+          // Always clear uploading state after images are done
+          setUploading(false);
+        }
       }
 
       const data = {
         name: formData.name,
         description: formData.description,
         price: parseFloat(formData.price),
-        image_url: imageUrl,
+        image_url: primaryImageUrl, // Primary/thumbnail image
         category: formData.category,
         is_vegetarian: formData.is_vegetarian,
         is_available: true,
@@ -229,65 +243,149 @@ export const MenuManagement = () => {
           .update(data)
           .eq('id', editingId);
         if (error) throw error;
+        
+        // Save additional images to menu_item_images table IN PARALLEL
+        if (uploadedImageUrls.length > 0) {
+          const imageInsertPromises = uploadedImageUrls.map((url, i) =>
+            supabase
+              .from('menu_item_images')
+              .upsert({
+                menu_item_id: editingId,
+                image_url: url,
+                image_order: i,
+              })
+          );
+          await Promise.all(imageInsertPromises);
+        }
+        
         addNotificationRef.current('Menu item updated successfully', 'success');
-        await fetchMenuItems();
+        // Don't call fetchMenuItems - real-time subscription will update the list
       } else {
-        const { error } = await supabase
+        const { error, data: insertedData } = await supabase
           .from('menu_items')
-          .insert([data]);
+          .insert([data])
+          .select();
         if (error) throw error;
+        
+        const newItemId = insertedData?.[0]?.id;
+        
+        // Save additional images to menu_item_images table IN PARALLEL
+        if (newItemId && uploadedImageUrls.length > 0) {
+          const imageInsertPromises = uploadedImageUrls.map((url, i) =>
+            supabase
+              .from('menu_item_images')
+              .insert({
+                menu_item_id: newItemId,
+                image_url: url,
+                image_order: i,
+              })
+          );
+          await Promise.all(imageInsertPromises);
+        }
+        
         addNotificationRef.current('Menu item added successfully', 'success');
-        await fetchMenuItems();
+        // Don't call fetchMenuItems - real-time subscription will update the list
       }
 
+      // Reset form BEFORE clearing loading states to prevent UI issues
       resetForm();
-      // Real-time subscription will update the list automatically
     } catch (error: unknown) {
       addNotificationRef.current(
         error instanceof Error ? error.message : 'Operation failed',
         'error'
       );
     } finally {
-      setActionLoading(false);
+      // Clear loading states - this must happen to unlock the UI
       setUploading(false);
+      setActionLoading(false);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+    const files = Array.from(e.target.files || []);
+    
+    // Maximum 4 images per item
+    if (files.length + imageFiles.length > 4) {
+      addNotification('Maximum 4 images per item allowed', 'error');
+      return;
+    }
+    
+    const newPreviews: string[] = [];
+    const validFiles: File[] = [];
+    
+    for (const file of files) {
       if (file.size > 5242880) {
-        addNotification('File size should be less than 5MB', 'error');
-        return;
+        addNotification(`${file.name} is larger than 5MB`, 'error');
+        continue;
       }
       if (!['image/jpeg', 'image/jpg', 'image/png'].includes(file.type)) {
-        addNotification('Only .jpg or .png images are allowed', 'error');
-        return;
+        addNotification(`${file.name} is not JPG or PNG`, 'error');
+        continue;
       }
-      addNotification('Image selected. Only .jpg or .png uploads are allowed.', 'info');
-      setImageFile(file);
+      
+      validFiles.push(file);
+      
+      // Create preview
       const reader = new FileReader();
-      reader.onload = (e) => {
-        if (e.target?.result) {
-          setImagePreview(e.target.result as string);
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setImagePreviews(prev => [...prev, event.target?.result as string]);
         }
       };
       reader.readAsDataURL(file);
     }
+    
+    if (validFiles.length > 0) {
+      setImageFiles(prev => [...prev, ...validFiles]);
+      addNotification(`${validFiles.length} image(s) selected`, 'success');
+    }
   };
 
-  const handleEdit = (item: MenuItem) => {
-    setFormData({
-      name: item.name,
-      description: item.description,
-      price: item.price.toString(),
-      image_url: item.image_url,
-      category: item.category,
-      is_vegetarian: item.is_vegetarian,
-    });
-    setImagePreview(item.image_url);
-    setEditingId(item.id);
-    setShowAddForm(true);
+  const handleEdit = async (item: MenuItem) => {
+    try {
+      setFormData({
+        name: item.name,
+        description: item.description,
+        price: item.price.toString(),
+        image_url: item.image_url,
+        category: item.category,
+        is_vegetarian: item.is_vegetarian,
+      });
+      
+      // Load existing images (if table exists)
+      try {
+        const { data: existingImages, error } = await supabase
+          .from('menu_item_images')
+          .select('*')
+          .eq('menu_item_id', item.id)
+          .order('image_order', { ascending: true });
+        
+        if (!error && existingImages && existingImages.length > 0) {
+          setImagePreviews(existingImages.map(img => img.image_url));
+        } else {
+          // If no additional images or table doesn't exist, just show primary image
+          if (item.image_url) {
+            setImagePreviews([item.image_url]);
+          } else {
+            setImagePreviews([]);
+          }
+        }
+      } catch (imageError) {
+        // Table might not exist yet, just use primary image
+        console.warn('Could not load additional images:', imageError);
+        if (item.image_url) {
+          setImagePreviews([item.image_url]);
+        } else {
+          setImagePreviews([]);
+        }
+      }
+      
+      setEditingId(item.id);
+      setShowAddForm(true);
+    } catch (error) {
+      console.error('Error in handleEdit:', error);
+      addNotificationRef.current('Failed to load item for editing', 'error');
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -303,7 +401,6 @@ export const MenuManagement = () => {
 
       if (error) throw error;
       addNotificationRef.current('Menu item deleted successfully', 'success');
-  await fetchMenuItems();
       // Real-time subscription will update the list automatically
     } catch (error: unknown) {
       addNotificationRef.current(
@@ -327,7 +424,6 @@ export const MenuManagement = () => {
 
       if (error) throw error;
       addNotificationRef.current('Item availability updated', 'success');
-  await fetchMenuItems();
       // Real-time subscription will update the list automatically
     } catch (error: unknown) {
       addNotificationRef.current(
@@ -348,8 +444,8 @@ export const MenuManagement = () => {
       category: 'morning',
       is_vegetarian: false,
     });
-    setImageFile(null);
-    setImagePreview('');
+    setImageFiles([]);
+    setImagePreviews([]);
     setEditingId(null);
     setShowAddForm(false);
     if (fileInputRef.current) {
@@ -461,44 +557,78 @@ export const MenuManagement = () => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Image</label>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Images (Up to 4) - {imagePreviews.length}/4
+              </label>
               <div className="space-y-4">
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   accept=".jpg,.jpeg,.png"
                   onChange={handleFileChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+                  disabled={imagePreviews.length >= 4}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                 />
-                <p className="text-xs text-gray-500">Accepted formats: JPG or PNG only.</p>
-                {imagePreview && (
-                  <div className="relative w-32 h-32">
-                    <img
-                      src={imagePreview}
-                      alt="Preview"
-                      className="w-full h-full object-cover rounded-lg"
-                    />
+                <p className="text-xs text-gray-500">
+                  Accepted formats: JPG or PNG. Maximum 4 images per item. Max 5MB per file.
+                </p>
+                
+                {imagePreviews.length > 0 && (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    {imagePreviews.map((preview, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={preview}
+                          alt={`Preview ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg border border-gray-200"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setImagePreviews(prev => prev.filter((_, i) => i !== index));
+                            setImageFiles(prev => prev.filter((_, i) => i !== index));
+                          }}
+                          className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X size={14} />
+                        </button>
+                        <span className="absolute bottom-1 left-1 bg-black text-white text-xs px-2 py-1 rounded">
+                          {index + 1}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="flex space-x-4">
-              <button
-                type="submit"
-                disabled={actionLoading || uploading}
-                className="flex items-center space-x-2 bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50"
-              >
-                {uploading && <Upload className="animate-spin" size={16} />}
-                <span>{editingId ? 'Update Item' : 'Add Item'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={resetForm}
-                className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition-colors"
-              >
-                Cancel
-              </button>
+            <div className="space-y-3">
+              {uploading && (
+                <div className="flex items-center space-x-2 text-blue-600 bg-blue-50 px-4 py-2 rounded-lg">
+                  <Upload className="animate-spin" size={16} />
+                  <span className="text-sm font-medium">Uploading images in parallel... This will only take a few seconds!</span>
+                </div>
+              )}
+              
+              <div className="flex space-x-4">
+                <button
+                  type="submit"
+                  disabled={actionLoading || uploading}
+                  className="flex items-center space-x-2 bg-red-600 text-white px-6 py-2 rounded-lg font-semibold hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploading && <Upload className="animate-spin" size={16} />}
+                  <span>{uploading ? 'Uploading...' : (editingId ? 'Update Item' : 'Add Item')}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={resetForm}
+                  disabled={uploading}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -539,14 +669,16 @@ export const MenuManagement = () => {
                   <div className="flex space-x-2">
                     <button
                       onClick={() => handleEdit(item)}
-                      className="flex items-center space-x-1 bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-sm hover:bg-blue-200 transition-colors"
+                      disabled={actionLoading || uploading}
+                      className="flex items-center space-x-1 bg-blue-100 text-blue-600 px-3 py-1 rounded-lg text-sm hover:bg-blue-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Edit size={14} />
                       <span>Edit</span>
                     </button>
                     <button
                       onClick={() => handleDelete(item.id)}
-                      className="flex items-center space-x-1 bg-red-100 text-red-600 px-3 py-1 rounded-lg text-sm hover:bg-red-200 transition-colors"
+                      disabled={actionLoading || uploading}
+                      className="flex items-center space-x-1 bg-red-100 text-red-600 px-3 py-1 rounded-lg text-sm hover:bg-red-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <Trash2 size={14} />
                       <span>Delete</span>

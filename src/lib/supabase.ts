@@ -21,12 +21,20 @@ export interface MenuItem {
   name: string;
   description: string;
   price: number;
-  image_url: string;
+  image_url: string; // Primary/thumbnail image
   category: 'morning' | 'afternoon' | 'dinner' | 'all';
   is_vegetarian: boolean;
   is_available: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface MenuItemImage {
+  id: string;
+  menu_item_id: string;
+  image_url: string;
+  image_order: number;
+  created_at: string;
 }
 
 export interface Order {

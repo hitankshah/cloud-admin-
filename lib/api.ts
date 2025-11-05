@@ -1,374 +1,277 @@
 import { supabase } from "@/lib/supabase"
 
-// Types
-export type Trip = {
-  id?: number
-  title: string
-  destination: string
-  status: string
-  group_size_min: number
-  group_size_max: number
-  meals_included: string
-  accommodation: string
-  description: string
-  host_id: number
-  start_date?: string
-  end_date?: string
-  price?: number
-}
+// Restaurant Management System Types
 
-export type Host = {
-  id?: number
+export type MenuItem = {
+  id: string
   name: string
-  bio: string
-  rating: number
-  reviews: number
-  social_link: string
-}
-
-export type TripActivity = {
-  id?: number
-  trip_id: number
-  name: string
-  category: string
-  is_optional: boolean
   description: string
-}
-
-export type TripInclusion = {
-  id?: number
-  trip_id: number
-  item: string
-}
-
-export type TripExclusion = {
-  id?: number
-  trip_id: number
-  item: string
-}
-
-export type TripInfluencer = {
-  id?: number
-  trip_id: number
-  influencer_name: string
-  influencer_category: string
   price: number
-  start_date: string
-  end_date: string
+  image_url: string
+  category: 'morning' | 'afternoon' | 'dinner'
+  is_vegetarian: boolean
+  is_available: boolean
+  created_at: string
+  updated_at: string
 }
 
-export type TripImage = {
-  id?: number
-  trip_id: number
-  image_url: string
+export type Order = {
+  id: string
+  customer_id: string | null
+  customer_name: string
+  customer_email: string
+  customer_phone: string
+  delivery_address: string
+  total_amount: number
+  status: 'pending' | 'confirmed' | 'preparing' | 'ready' | 'delivered' | 'cancelled'
+  special_instructions: string
+  is_read: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type OrderItem = {
+  id: string
+  order_id: string
+  menu_item_id: string
+  quantity: number
+  price_at_order: number
+  created_at: string
 }
 
 export type User = {
-  id?: number
-  name: string
+  id: string
   email: string
-  role: string
-  status: string
-  join_date: string
-  last_login: string
+  full_name: string
+  phone: string
+  role: 'customer' | 'admin'
+  created_at: string
 }
 
-export type Booking = {
-  id?: number
-  customer_id: number
-  trip_id: number
-  booking_date: string
-  status: string
-  payment_status: string
-  amount: number
+export type MenuItemImage = {
+  id: string
+  menu_item_id: string
+  image_url: string
+  image_order: number
+  created_at: string
 }
 
-export type Message = {
-  id?: number
-  sender_id: number
-  subject: string
-  message: string
-  date: string
-  status: string
-}
-
-export type Setting = {
-  id?: number
-  key: string
-  value: string
-  category: string
-}
-
-// Package/Trip API
-export const packageApi = {
-  // Get all trips with related data
-  getTripsWithRelated: async () => {
-    const { data: tripsData, error: tripsError } = await supabase.from("trips").select("*")
-
-    if (tripsError) throw tripsError
-
-    const { data: activitiesData } = await supabase.from("trip_activities").select("*")
-    const { data: inclusionsData } = await supabase.from("trip_inclusions").select("*")
-    const { data: exclusionsData } = await supabase.from("trip_exclusions").select("*")
-    const { data: influencersData } = await supabase.from("trip_influencers").select("*")
-    const { data: imagesData } = await supabase.from("trip_images").select("*")
-
-    // Join all data on trip_id
-    const combined = tripsData?.map((trip) => ({
-      ...trip,
-      activities: activitiesData?.filter((a) => a.trip_id === trip.id) || [],
-      inclusions: inclusionsData?.filter((i) => i.trip_id === trip.id) || [],
-      exclusions: exclusionsData?.filter((e) => e.trip_id === trip.id) || [],
-      influencers: influencersData?.filter((f) => f.trip_id === trip.id) || [],
-      images: imagesData?.filter((img) => img.trip_id === trip.id) || [],
-    }))
-
-    return combined || []
-  },
-
-  // Get a single trip with related data
-  getTripWithRelated: async (tripId: number) => {
-    const { data: trip, error: tripError } = await supabase.from("trips").select("*").eq("id", tripId).single()
-
-    if (tripError) throw tripError
-
-    const { data: activities } = await supabase.from("trip_activities").select("*").eq("trip_id", tripId)
-    const { data: inclusions } = await supabase.from("trip_inclusions").select("*").eq("trip_id", tripId)
-    const { data: exclusions } = await supabase.from("trip_exclusions").select("*").eq("trip_id", tripId)
-    const { data: influencers } = await supabase.from("trip_influencers").select("*").eq("trip_id", tripId)
-    const { data: images } = await supabase.from("trip_images").select("*").eq("trip_id", tripId)
-
-    return {
-      ...trip,
-      activities: activities || [],
-      inclusions: inclusions || [],
-      exclusions: exclusions || [],
-      influencers: influencers || [],
-      images: images || [],
-    }
-  },
-
-  // Get host information
-  getHost: async (hostId: number) => {
-    const { data, error } = await supabase.from("hosts").select("*").eq("id", hostId).single()
-
-    if (error) throw error
-    return data
-  },
-
-  // Create a new trip
-  createTrip: async (trip: Trip) => {
-    const { data, error } = await supabase.from("trips").insert(trip).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  // Update a trip
-  updateTrip: async (tripId: number, trip: Partial<Trip>) => {
-    const { data, error } = await supabase.from("trips").update(trip).eq("id", tripId).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  // Delete a trip and all related data
-  deleteTrip: async (tripId: number) => {
-    // Delete related data first (due to foreign key constraints)
-    await supabase.from("trip_activities").delete().eq("trip_id", tripId)
-    await supabase.from("trip_inclusions").delete().eq("trip_id", tripId)
-    await supabase.from("trip_exclusions").delete().eq("trip_id", tripId)
-    await supabase.from("trip_influencers").delete().eq("trip_id", tripId)
-    await supabase.from("trip_images").delete().eq("trip_id", tripId)
-
-    // Delete the trip
-    const { error } = await supabase.from("trips").delete().eq("id", tripId)
-    if (error) throw error
-    return true
-  },
-
-  // Add activities to a trip
-  addActivities: async (activities: TripActivity[]) => {
-    const { data, error } = await supabase.from("trip_activities").insert(activities).select()
-    if (error) throw error
-    return data
-  },
-
-  // Add inclusions to a trip
-  addInclusions: async (inclusions: TripInclusion[]) => {
-    const { data, error } = await supabase.from("trip_inclusions").insert(inclusions).select()
-    if (error) throw error
-    return data
-  },
-
-  // Add exclusions to a trip
-  addExclusions: async (exclusions: TripExclusion[]) => {
-    const { data, error } = await supabase.from("trip_exclusions").insert(exclusions).select()
-    if (error) throw error
-    return data
-  },
-
-  // Add influencers to a trip
-  addInfluencers: async (influencers: TripInfluencer[]) => {
-    const { data, error } = await supabase.from("trip_influencers").insert(influencers).select()
-    if (error) throw error
-    return data
-  },
-
-  // Add images to a trip
-  addImages: async (images: TripImage[]) => {
-    const { data, error } = await supabase.from("trip_images").insert(images).select()
-    if (error) throw error
-    return data
-  },
-}
-
-// Host API
-export const hostApi = {
-  getHosts: async () => {
-    const { data, error } = await supabase.from("hosts").select("*")
+// Menu Item API
+export const menuItemApi = {
+  getMenuItems: async () => {
+    const { data, error } = await supabase
+      .from("menu_items")
+      .select("*")
+      .order("created_at", { ascending: false })
     if (error) throw error
     return data || []
   },
 
-  createHost: async (host: Host) => {
-    const { data, error } = await supabase.from("hosts").insert(host).select()
+  getMenuItem: async (itemId: string) => {
+    const { data, error } = await supabase
+      .from("menu_items")
+      .select("*")
+      .eq("id", itemId)
+      .single()
     if (error) throw error
-    return data[0]
+    return data
   },
 
-  updateHost: async (hostId: number, host: Partial<Host>) => {
-    const { data, error } = await supabase.from("hosts").update(host).eq("id", hostId).select()
+  createMenuItem: async (item: Omit<MenuItem, 'id' | 'created_at' | 'updated_at'>) => {
+    const { data, error } = await supabase
+      .from("menu_items")
+      .insert(item)
+      .select()
     if (error) throw error
-    return data[0]
+    return data?.[0]
+  },
+
+  updateMenuItem: async (itemId: string, item: Partial<Omit<MenuItem, 'id' | 'created_at' | 'updated_at'>>) => {
+    const { data, error } = await supabase
+      .from("menu_items")
+      .update(item)
+      .eq("id", itemId)
+      .select()
+    if (error) throw error
+    return data?.[0]
+  },
+
+  deleteMenuItem: async (itemId: string) => {
+    const { error } = await supabase
+      .from("menu_items")
+      .delete()
+      .eq("id", itemId)
+    if (error) throw error
+    return true
+  },
+}
+
+// Order API
+export const orderApi = {
+  getOrders: async () => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .order("created_at", { ascending: false })
+    if (error) throw error
+    return data || []
+  },
+
+  getOrder: async (orderId: string) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*, order_items(*)")
+      .eq("id", orderId)
+      .single()
+    if (error) throw error
+    return data
+  },
+
+  createOrder: async (order: Omit<Order, 'id' | 'created_at' | 'updated_at'>) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .insert(order)
+      .select()
+    if (error) throw error
+    return data?.[0]
+  },
+
+  updateOrder: async (orderId: string, order: Partial<Omit<Order, 'id' | 'created_at' | 'updated_at'>>) => {
+    const { data, error } = await supabase
+      .from("orders")
+      .update(order)
+      .eq("id", orderId)
+      .select()
+    if (error) throw error
+    return data?.[0]
+  },
+
+  deleteOrder: async (orderId: string) => {
+    const { error } = await supabase
+      .from("orders")
+      .delete()
+      .eq("id", orderId)
+    if (error) throw error
+    return true
+  },
+}
+
+// Order Item API
+export const orderItemApi = {
+  getOrderItems: async (orderId: string) => {
+    const { data, error } = await supabase
+      .from("order_items")
+      .select("*")
+      .eq("order_id", orderId)
+    if (error) throw error
+    return data || []
+  },
+
+  createOrderItem: async (item: Omit<OrderItem, 'id' | 'created_at'>) => {
+    const { data, error } = await supabase
+      .from("order_items")
+      .insert(item)
+      .select()
+    if (error) throw error
+    return data?.[0]
+  },
+
+  deleteOrderItem: async (itemId: string) => {
+    const { error } = await supabase
+      .from("order_items")
+      .delete()
+      .eq("id", itemId)
+    if (error) throw error
+    return true
   },
 }
 
 // User API
 export const userApi = {
   getUsers: async () => {
-    const { data, error } = await supabase.from("users").select("*")
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .order("created_at", { ascending: false })
     if (error) throw error
     return data || []
   },
 
-  getUser: async (userId: number) => {
-    const { data, error } = await supabase.from("users").select("*").eq("id", userId).single()
+  getUser: async (userId: string) => {
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .eq("id", userId)
+      .single()
     if (error) throw error
     return data
   },
 
-  createUser: async (user: User) => {
-    const { data, error } = await supabase.from("users").insert(user).select()
+  updateUser: async (userId: string, user: Partial<Omit<User, 'id' | 'created_at'>>) => {
+    const { data, error } = await supabase
+      .from("users")
+      .update(user)
+      .eq("id", userId)
+      .select()
     if (error) throw error
-    return data[0]
+    return data?.[0]
   },
 
-  updateUser: async (userId: number, user: Partial<User>) => {
-    const { data, error } = await supabase.from("users").update(user).eq("id", userId).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  deleteUser: async (userId: number) => {
-    const { error } = await supabase.from("users").delete().eq("id", userId)
+  deleteUser: async (userId: string) => {
+    const { error } = await supabase
+      .from("users")
+      .delete()
+      .eq("id", userId)
     if (error) throw error
     return true
   },
 }
 
-// Booking API
-export const bookingApi = {
-  getBookings: async () => {
-    const { data, error } = await supabase.from("bookings").select("*")
+// Menu Item Images API
+export const menuItemImageApi = {
+  getMenuItemImages: async (menuItemId: string) => {
+    const { data, error } = await supabase
+      .from("menu_item_images")
+      .select("*")
+      .eq("menu_item_id", menuItemId)
+      .order("image_order", { ascending: true })
     if (error) throw error
     return data || []
   },
 
-  getBooking: async (bookingId: number) => {
-    const { data, error } = await supabase.from("bookings").select("*").eq("id", bookingId).single()
+  createMenuItemImage: async (image: Omit<MenuItemImage, 'id' | 'created_at'>) => {
+    const { data, error } = await supabase
+      .from("menu_item_images")
+      .insert(image)
+      .select()
     if (error) throw error
-    return data
+    return data?.[0]
   },
 
-  createBooking: async (booking: Booking) => {
-    const { data, error } = await supabase.from("bookings").insert(booking).select()
+  updateMenuItemImage: async (imageId: string, image: Partial<Omit<MenuItemImage, 'id' | 'created_at' | 'menu_item_id'>>) => {
+    const { data, error } = await supabase
+      .from("menu_item_images")
+      .update(image)
+      .eq("id", imageId)
+      .select()
     if (error) throw error
-    return data[0]
+    return data?.[0]
   },
 
-  updateBooking: async (bookingId: number, booking: Partial<Booking>) => {
-    const { data, error } = await supabase.from("bookings").update(booking).eq("id", bookingId).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  deleteBooking: async (bookingId: number) => {
-    const { error } = await supabase.from("bookings").delete().eq("id", bookingId)
+  deleteMenuItemImage: async (imageId: string) => {
+    const { error } = await supabase
+      .from("menu_item_images")
+      .delete()
+      .eq("id", imageId)
     if (error) throw error
     return true
   },
-}
 
-// Message API
-export const messageApi = {
-  getMessages: async () => {
-    const { data, error } = await supabase.from("messages").select("*")
-    if (error) throw error
-    return data || []
-  },
-
-  getMessage: async (messageId: number) => {
-    const { data, error } = await supabase.from("messages").select("*").eq("id", messageId).single()
-    if (error) throw error
-    return data
-  },
-
-  createMessage: async (message: Message) => {
-    const { data, error } = await supabase.from("messages").insert(message).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  updateMessage: async (messageId: number, message: Partial<Message>) => {
-    const { data, error } = await supabase.from("messages").update(message).eq("id", messageId).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  deleteMessage: async (messageId: number) => {
-    const { error } = await supabase.from("messages").delete().eq("id", messageId)
-    if (error) throw error
-    return true
-  },
-}
-
-// Settings API
-export const settingApi = {
-  getSettings: async () => {
-    const { data, error } = await supabase.from("settings").select("*")
-    if (error) throw error
-    return data || []
-  },
-
-  getSetting: async (settingId: number) => {
-    const { data, error } = await supabase.from("settings").select("*").eq("id", settingId).single()
-    if (error) throw error
-    return data
-  },
-
-  createSetting: async (setting: Setting) => {
-    const { data, error } = await supabase.from("settings").insert(setting).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  updateSetting: async (settingId: number, setting: Partial<Setting>) => {
-    const { data, error } = await supabase.from("settings").update(setting).eq("id", settingId).select()
-    if (error) throw error
-    return data[0]
-  },
-
-  deleteSetting: async (settingId: number) => {
-    const { error } = await supabase.from("settings").delete().eq("id", settingId)
+  deleteAllMenuItemImages: async (menuItemId: string) => {
+    const { error } = await supabase
+      .from("menu_item_images")
+      .delete()
+      .eq("menu_item_id", menuItemId)
     if (error) throw error
     return true
   },
